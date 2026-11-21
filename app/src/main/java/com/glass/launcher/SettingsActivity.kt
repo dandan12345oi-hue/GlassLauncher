@@ -114,7 +114,7 @@ class SettingsActivity : Activity() {
             render()
         }
         toggle("Mostrar data", p.showDate) { p.showDate = it }
-        toggle("Barra de busca", p.showSearch) { p.showSearch = it }
+        toggle("Barra de busca na gaveta", p.showSearch) { p.showSearch = it }
         slider("Colunas da grade", 3, 6, p.cols) { p.cols = it }
         slider("Espa\u00e7amento da grade", 0, 24, p.gridGap, " dp") { p.gridGap = it }
         slider("\u00cdcones no dock", 3, 6, p.dockCount) { p.dockCount = it }
