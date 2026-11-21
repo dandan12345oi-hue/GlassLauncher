@@ -119,6 +119,11 @@ class SettingsActivity : Activity() {
         slider("Espa\u00e7amento da grade", 0, 24, p.gridGap, " dp") { p.gridGap = it }
         slider("\u00cdcones no dock", 3, 6, p.dockCount) { p.dockCount = it }
         toggle("Dock em vidro", p.dockGlass) { p.dockGlass = it }
+        note("Deslize horizontalmente para trocar de página. Segure um atalho e solte sobre outro para criar uma pasta. Use + Widget na tela inicial para adicionar widgets instalados.")
+        button("Restaurar atalhos da tela inicial") {
+            p.home = emptyList()
+            render()
+        }
 
         title("MODO DESKTOP / DEX")
         choices("Ativa\u00e7\u00e3o", listOf("Autom\u00e1tico", "Sempre", "Nunca"), p.desktopMode) {
