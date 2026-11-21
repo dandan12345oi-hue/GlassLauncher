@@ -115,6 +115,16 @@ class Prefs(private val ctx: Context) {
         get() = list("dock")
         set(v) = ed { putString("dock", v.joinToString("|")) }
 
+    // Atalhos reais da tela inicial (separados da gaveta e do dock)
+    var home: List<String>
+        get() = list("home")
+        set(v) = ed { putString("home", v.joinToString("|")) }
+
+    // IDs persistentes dos widgets Android hospedados pelo launcher
+    var widgets: List<Int>
+        get() = (sp.getString("widgets", "") ?: "").split(",").mapNotNull { it.toIntOrNull() }
+        set(v) = ed { putString("widgets", v.distinct().joinToString(",")) }
+
     // Modo desktop / DeX: 0 automatico, 1 sempre, 2 nunca
     var desktopMode: Int
         get() = sp.getInt("desktopMode", 0)
