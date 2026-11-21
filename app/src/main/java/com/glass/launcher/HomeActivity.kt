@@ -398,3 +398,368 @@ class HomeActivity : Activity() {
         val tb = GlassView(this, p, if (floating) 40f else -p.glassRadius.toFloat())
         val bar = LinearLayout(this)
         bar.orientation = LinearLayout.HORIZONTAL
+        bar.gravity = Gravity.CENTER_VERTICAL
+        bar.setPadding(dp(10), 0, dp(10), 0)
+        val sb = dp(p.taskbarH) - dp(20)
+        val start = TextView(this)
+        start.text = "\u2756"
+        start.textSize = 20f
+        start.gravity = Gravity.CENTER
+        start.setTextColor(Color.WHITE)
+        val sg = GradientDrawable()
+        sg.cornerRadius = dpf(14f)
+        sg.setColor(p.accent)
+        start.background = sg
+        start.setOnClickListener { toggleMenu() }
+        val startGroup = LinearLayout(this)
+        startGroup.orientation = LinearLayout.HORIZONTAL
+        startGroup.gravity = Gravity.CENTER_VERTICAL
+        startGroup.addView(start, lp(sb, sb, 4, 0, 10, 0))
+        val dockRow = LinearLayout(this)
+        dockRow.orientation = LinearLayout.HORIZONTAL
+        dockRow.gravity = Gravity.CENTER_VERTICAL
+        startGroup.addView(dockRow)
+        dockBox = dockRow
+
+        val left = LinearLayout(this)
+        left.gravity = Gravity.CENTER_VERTICAL or Gravity.START
+        val mid = LinearLayout(this)
+        mid.gravity = Gravity.CENTER_VERTICAL
+        val right = LinearLayout(this)
+        right.gravity = Gravity.CENTER_VERTICAL or Gravity.END
+        if (p.taskbarCenter) mid.addView(startGroup) else left.addView(startGroup)
+        val tc = LinearLayout(this)
+        tc.orientation = LinearLayout.VERTICAL
+        tc.gravity = Gravity.END
+        tc.setPadding(dp(8), 0, dp(4), 0)
+        val t1 = TextClock(this)
+        t1.format24Hour = "HH:mm"
+        t1.format12Hour = "h:mm"
+        t1.textSize = 15f
+        t1.typeface = Typeface.DEFAULT_BOLD
+        t1.setTextColor(p.fg)
+        val t2 = TextClock(this)
+        t2.format24Hour = "d MMM"
+        t2.format12Hour = "d MMM"
+        t2.textSize = 11f
+        t2.setTextColor(withAlpha(p.fg, 190))
+        tc.addView(t1)
+        tc.addView(t2)
+        right.addView(tc)
+        right.addView(gearView(20f))
+        bar.addView(left, lp(0, -1, weight = 1f))
+        bar.addView(mid, lp(-2, -1))
+        bar.addView(right, lp(0, -1, weight = 1f))
+        tb.addView(bar, fp(-1, -1))
+        val tbLp = fp(-1, dp(p.taskbarH), Gravity.BOTTOM)
+        if (floating) tbLp.setMargins(dp(16), 0, dp(16), dp(12))
+        col.addView(tb, tbLp)
+        fillDock()
+        return root
+    }
+
+    private fun menuParams(): FrameLayout.LayoutParams {
+        val dm = resources.displayMetrics
+        val mh = minOf(dp(600), dm.heightPixels - dp(p.taskbarH) - dp(110))
+        val mw = minOf(dp(440), dm.widthPixels - dp(32))
+        val gravity = Gravity.BOTTOM or (if (p.taskbarCenter) Gravity.CENTER_HORIZONTAL else Gravity.START)
+        val lpm = fp(mw, mh, gravity)
+        lpm.bottomMargin = dp(p.taskbarH) + dp(if (p.taskbarFloat) 24 else 10)
+        if (!p.taskbarCenter) lpm.leftMargin = dp(if (p.taskbarFloat) 16 else 8)
+        return lpm
+    }
+
+    private fun buildStartMenu(): GlassView {
+        val m = GlassView(this, p)
+        val lay = LinearLayout(this)
+        lay.orientation = LinearLayout.VERTICAL
+        lay.setPadding(dp(14), dp(14), dp(14), dp(10))
+        lay.addView(searchBar(false), lp(-1, -2, b = 8))
+        val g = newGrid(4)
+        setupGrid(g)
+        lay.addView(g, lp(-1, 0, weight = 1f))
+        val foot = LinearLayout(this)
+        foot.orientation = LinearLayout.HORIZONTAL
+        foot.gravity = Gravity.CENTER_VERTICAL
+        foot.setPadding(dp(4), dp(8), dp(4), 0)
+        val count = TextView(this)
+        count.text = "${apps.size} apps"
+        count.textSize = 12f
+        count.setTextColor(withAlpha(p.fg, 170))
+        foot.addView(count, lp(0, -2, weight = 1f))
+        val st = TextView(this)
+        st.text = "Ajustes"
+        st.textSize = 13f
+        st.setTextColor(p.accent)
+        st.typeface = Typeface.DEFAULT_BOLD
+        st.setPadding(dp(10), dp(6), dp(10), dp(6))
+        st.setOnClickListener { startActivity(Intent(this, SettingsActivity::class.java)) }
+        foot.addView(st)
+        lay.addView(foot, lp(-1, -2))
+        m.addView(lay, fp(-1, -1))
+        return m
+    }
+
+    private fun menuOpen(): Boolean = menu?.visibility == View.VISIBLE
+
+    private fun toggleMenu() {
+        if (menuOpen()) closeMenu() else openMenu()
+    }
+
+    private fun openMenu() {
+        val m = menu ?: return
+        query = ""
+        searchEt?.setText("")
+        applyFilter()
+        adapter?.notifyDataSetChanged()
+        grid?.setSelection(0)
+        scrim?.visibility = View.VISIBLE
+        m.alpha = 0f
+        m.visibility = View.VISIBLE
+        m.animate().alpha(1f).setDuration(140).start()
+        searchEt?.requestFocus()
+    }
+
+    private fun closeMenu() {
+        val m = menu ?: return
+        if (m.visibility != View.VISIBLE) return
+        scrim?.visibility = View.GONE
+        m.animate().alpha(0f).setDuration(110).withEndAction { m.visibility = View.GONE }.start()
+    }
+
+    private fun deskCell(a: AppInfo, px: Int): View {
+        val ll = LinearLayout(this)
+        ll.orientation = LinearLayout.VERTICAL
+        ll.gravity = Gravity.CENTER_HORIZONTAL
+        ll.setPadding(dp(6), dp(6), dp(6), dp(6))
+        val iv = ImageView(this)
+        iv.scaleType = ImageView.ScaleType.CENTER
+        iv.setImageBitmap(icons.get(a, px))
+        ll.addView(iv, lp(px, px))
+        val tv = TextView(this)
+        tv.text = a.label
+        tv.textSize = 12f
+        tv.maxLines = 2
+        tv.ellipsize = TextUtils.TruncateAt.END
+        tv.gravity = Gravity.CENTER
+        tv.setTextColor(p.fg)
+        tv.setShadowLayer(8f, 0f, 2f, if (p.dark) Color.argb(180, 0, 0, 0) else Color.argb(160, 255, 255, 255))
+        ll.addView(tv, lp(-1, -2, t = 4))
+        hover(ll)
+        ll.setOnClickListener { launch(a) }
+        ll.setOnLongClickListener { v ->
+            appMenu(v, a, 1)
+            true
+        }
+        ll.isContextClickable = true
+        ll.setOnContextClickListener { v ->
+            appMenu(v, a, 1)
+            true
+        }
+        return ll
+    }
+
+    private fun hover(v: View) {
+        v.setOnHoverListener { view, e ->
+            when (e.action) {
+                MotionEvent.ACTION_HOVER_ENTER -> {
+                    val g = GradientDrawable()
+                    g.cornerRadius = dpf(14f)
+                    g.setColor(withAlpha(Color.WHITE, if (p.dark) 40 else 90))
+                    view.background = g
+                }
+                MotionEvent.ACTION_HOVER_EXIT -> view.background = null
+            }
+            false
+        }
+    }
+
+    private fun fillDock() {
+        val box = dockBox ?: return
+        box.removeAllViews()
+        val map = apps.associateBy { it.key }
+        val list = p.dock.mapNotNull { map[it] }.take(p.dockCount)
+        if (desktop) {
+            val px = dp(p.taskbarH) - dp(26)
+            for (a in list) {
+                val iv = ImageView(this)
+                iv.scaleType = ImageView.ScaleType.CENTER
+                iv.setImageBitmap(icons.get(a, px))
+                iv.setOnClickListener { launch(a) }
+                iv.setOnLongClickListener { v ->
+                    appMenu(v, a, 2)
+                    true
+                }
+                iv.isContextClickable = true
+                iv.setOnContextClickListener { v ->
+                    appMenu(v, a, 2)
+                    true
+                }
+                hover(iv)
+                box.addView(iv, lp(px + dp(14), px + dp(14), 2, 0, 2, 0))
+            }
+        } else {
+            if (list.isEmpty()) {
+                val t = TextView(this)
+                t.text = "Segure um app na grade para fixar aqui"
+                t.setTextColor(p.fg)
+                t.textSize = 13f
+                t.setPadding(0, dp(18), 0, dp(18))
+                box.addView(t)
+                return
+            }
+            val px = dp(p.iconSize)
+            for (a in list) {
+                val iv = ImageView(this)
+                iv.scaleType = ImageView.ScaleType.CENTER
+                iv.setImageBitmap(icons.get(a, px))
+                iv.setOnClickListener { launch(a) }
+                iv.setOnLongClickListener { v ->
+                    appMenu(v, a, 2)
+                    true
+                }
+                box.addView(iv, lp(0, px + dp(8), weight = 1f))
+            }
+        }
+    }
+
+    private fun launch(a: AppInfo) {
+        closeMenu()
+        try {
+            val i = Intent(Intent.ACTION_MAIN)
+            i.addCategory(Intent.CATEGORY_LAUNCHER)
+            i.component = ComponentName(a.pkg, a.cls)
+            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
+            if (desktop && p.winMode) {
+                val dm = resources.displayMetrics
+                val w = (dm.widthPixels * 0.6f).toInt()
+                val h = (dm.heightPixels * 0.72f).toInt()
+                val off = (winCount % 6) * dp(40)
+                winCount++
+                val left = dp(120) + off
+                val top = dp(48) + off
+                val options = ActivityOptions.makeBasic()
+                options.setLaunchBounds(android.graphics.Rect(left, top, left + w, top + h))
+                startActivity(i, options.toBundle())
+            } else {
+                startActivity(i)
+            }
+        } catch (e: Exception) {
+            Toast.makeText(this, "Não foi possível abrir o app", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun popup(v: View, items: List<Pair<String, () -> Unit>>) {
+        v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+        val m = PopupMenu(this, v)
+        items.forEachIndexed { i, item -> m.menu.add(0, i, i, item.first) }
+        m.setOnMenuItemClickListener { item ->
+            items[item.itemId].second()
+            true
+        }
+        m.show()
+    }
+
+    /** kind: 0 = grade/menu, 1 = área de trabalho, 2 = dock/barra */
+    private fun appMenu(v: View, a: AppInfo, kind: Int) {
+        val l = ArrayList<Pair<String, () -> Unit>>()
+        l.add("Abrir" to { launch(a) })
+        if (kind != 2) l.add((if (desktop) "Fixar na barra" else "Fixar no dock") to { pinDock(a) })
+        if (kind == 2) l.add("Remover da barra" to { unpinDock(a) })
+        if (kind != 1) l.add("Fixar na área de trabalho" to { pinDesk(a) })
+        if (kind == 1) l.add("Remover da área de trabalho" to { unpinDesk(a) })
+        l.add("Informações do app" to {
+            startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + a.pkg)))
+        })
+        l.add("Desinstalar" to {
+            startActivity(Intent(Intent.ACTION_DELETE, Uri.parse("package:" + a.pkg)))
+        })
+        popup(v, l)
+    }
+
+    private fun desktopMenu(v: View) {
+        popup(v, listOf(
+            "Menu Iniciar" to { toggleMenu() },
+            "Ajustes do launcher" to { startActivity(Intent(this, SettingsActivity::class.java)) },
+            "Atualizar" to { rebuild() }
+        ))
+    }
+
+    private fun pinDock(a: AppInfo) {
+        val l = p.dock.toMutableList()
+        if (a.key !in l) l.add(a.key)
+        p.dock = l.takeLast(p.dockCount)
+        lastRev = p.rev
+        fillDock()
+    }
+
+    private fun unpinDock(a: AppInfo) {
+        p.dock = p.dock.filter { it != a.key }
+        lastRev = p.rev
+        fillDock()
+    }
+
+    private fun pinDesk(a: AppInfo) {
+        val l = p.desk.toMutableList()
+        if (a.key !in l) l.add(a.key)
+        p.desk = l
+        lastRev = p.rev
+        if (desktop) setUi()
+        else Toast.makeText(this, "Adicionado à área de trabalho (modo desktop)", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun unpinDesk(a: AppInfo) {
+        p.desk = p.desk.filter { it != a.key }
+        lastRev = p.rev
+        if (desktop) setUi()
+    }
+
+    private fun makeCell(): LinearLayout {
+        val ll = LinearLayout(this)
+        ll.orientation = LinearLayout.VERTICAL
+        ll.gravity = Gravity.CENTER_HORIZONTAL
+        ll.setPadding(dp(2), dp(8), dp(2), dp(6))
+        val px = dp(p.iconSize)
+        val iv = ImageView(this)
+        iv.scaleType = ImageView.ScaleType.CENTER
+        ll.addView(iv, lp(px, px))
+        val tv = TextView(this)
+        tv.textSize = p.labelSize.toFloat()
+        tv.maxLines = 1
+        tv.ellipsize = TextUtils.TruncateAt.END
+        tv.gravity = Gravity.CENTER
+        tv.setTextColor(p.fg)
+        ll.addView(tv, lp(-1, -2, t = 4))
+        hover(ll)
+        ll.setOnTouchListener { v, e ->
+            when (e.action) {
+                MotionEvent.ACTION_DOWN -> v.animate().scaleX(0.92f).scaleY(0.92f).setDuration(90).start()
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL ->
+                    v.animate().scaleX(1f).scaleY(1f).setDuration(120).start()
+            }
+            false
+        }
+        return ll
+    }
+
+    private inner class AppAdapter : BaseAdapter() {
+        override fun getCount(): Int = shown.size
+        override fun getItem(position: Int): Any = shown[position]
+        override fun getItemId(position: Int): Long = position.toLong()
+        override fun getView(position: Int, convertView: View?, parent: ViewGroup?): View {
+            val a = shown[position]
+            val ll = (convertView as? LinearLayout) ?: makeCell()
+            val iv = ll.getChildAt(0) as ImageView
+            val tv = ll.getChildAt(1) as TextView
+            iv.setImageBitmap(icons.get(a, dp(p.iconSize)))
+            tv.text = a.label
+            tv.visibility = if (p.showLabels) View.VISIBLE else View.GONE
+            ll.isContextClickable = true
+            ll.setOnContextClickListener { v ->
+                appMenu(v, a, 0)
+                true
+            }
+            return ll
+        }
+    }
+}

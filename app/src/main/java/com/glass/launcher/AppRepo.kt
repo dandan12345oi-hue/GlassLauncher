@@ -4,7 +4,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.res.Resources
-import android.graphics.AdaptiveIconDrawable
+import android.graphics.drawable.AdaptiveIconDrawable
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
