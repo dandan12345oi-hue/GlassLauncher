@@ -120,6 +120,10 @@ class Prefs(private val ctx: Context) {
         get() = list("home")
         set(v) = ed { putString("home", v.joinToString("|")) }
 
+    var homeSeeded: Boolean
+        get() = sp.getBoolean("homeSeeded", false)
+        set(v) = ed { putBoolean("homeSeeded", v) }
+
     // IDs persistentes dos widgets Android hospedados pelo launcher
     var widgets: List<Int>
         get() = (sp.getString("widgets", "") ?: "").split(",").mapNotNull { it.toIntOrNull() }
