@@ -30,6 +30,7 @@ import android.text.Editable
 import android.text.TextUtils
 import android.text.TextWatcher
 import android.util.DisplayMetrics
+import android.view.DragEvent
 import android.view.Gravity
 import android.view.HapticFeedbackConstants
 import android.view.KeyEvent
@@ -463,8 +464,8 @@ class HomeActivity : Activity() {
             }
             g.setOnDragListener { view, event ->
                 when (event.action) {
-                    View.DRAG_STARTED -> event.clipDescription?.hasMimeType(ClipDescription.MIMETYPE_TEXT_PLAIN) == true
-                    View.DRAG_DROP -> {
+                    DragEvent.ACTION_DRAG_STARTED -> event.clipDescription?.hasMimeType(ClipDescription.MIMETYPE_TEXT_PLAIN) == true
+                    DragEvent.ACTION_DROP -> {
                         val dragged = event.clipData?.getItemAt(0)?.text?.toString()
                         val pos = g.pointToPosition(event.x.toInt(), event.y.toInt())
                         if (!dragged.isNullOrBlank()) {
@@ -474,7 +475,7 @@ class HomeActivity : Activity() {
                         }
                         true
                     }
-                    View.DRAG_ENDED -> true
+                    DragEvent.ACTION_DRAG_ENDED -> true
                     else -> true
                 }
             }
