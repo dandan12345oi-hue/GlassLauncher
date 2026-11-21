@@ -21,6 +21,7 @@
             <data android:scheme="sms" />
         </intent>
         <intent><action android:name="android.media.action.IMAGE_CAPTURE" /></intent>
+        <intent><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent>
     </queries>
 
     <application
@@ -35,6 +36,7 @@
             android:launchMode="singleTask"
             android:stateNotNeeded="true"
             android:resizeableActivity="true"
+            android:excludeFromRecents="true"
             android:windowSoftInputMode="adjustPan"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|uiMode|keyboard|keyboardHidden|navigation">
             <intent-filter>
