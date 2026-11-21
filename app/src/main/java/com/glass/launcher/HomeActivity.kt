@@ -800,7 +800,7 @@ class HomeActivity : Activity() {
         val lay = LinearLayout(this)
         lay.orientation = LinearLayout.VERTICAL
         lay.setPadding(dp(14), dp(14), dp(14), dp(10))
-        lay.addView(searchBar(false), lp(-1, -2, b = 8))
+        if (p.showSearch) lay.addView(searchBar(false), lp(-1, -2, b = 8))
         val g = newGrid(4)
         setupGrid(g)
         lay.addView(g, lp(-1, 0, weight = 1f))
@@ -996,10 +996,10 @@ class HomeActivity : Activity() {
     private fun appMenu(v: View, a: AppInfo, kind: Int) {
         val l = ArrayList<Pair<String, () -> Unit>>()
         l.add("Abrir" to { launch(a) })
-        if (!desktop && kind == 0 && a.key !in p.home) l.add("Adicionar à tela inicial" to { pinHome(a) })
+        if (!desktop && kind != 1 && a.key !in p.home) l.add("Adicionar à tela inicial" to { pinHome(a) })
         if (kind != 2) l.add((if (desktop) "Fixar na barra" else "Fixar no dock") to { pinDock(a) })
         if (kind == 2) l.add("Remover da barra" to { unpinDock(a) })
-        if (kind != 1) l.add("Fixar na área de trabalho" to { pinDesk(a) })
+        if (desktop && kind != 1) l.add("Fixar na área de trabalho" to { pinDesk(a) })
         if (kind == 1) l.add("Remover da área de trabalho" to { unpinDesk(a) })
         l.add("Informações do app" to {
             startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + a.pkg)))
