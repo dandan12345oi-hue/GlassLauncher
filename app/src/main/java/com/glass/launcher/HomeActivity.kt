@@ -239,6 +239,7 @@ class HomeActivity : Activity() {
     }
 
     private fun setUi() {
+        drawerOpen = false
         menu = null
         scrim = null
         searchEt = null
@@ -473,6 +474,8 @@ class HomeActivity : Activity() {
             }
             flipper.addView(g, fp(-1, -1))
         }
+        homePageIndex = homePageIndex.coerceIn(0, pages.lastIndex)
+        flipper.displayedChild = homePageIndex
         homeFlipper = flipper
         panel.addView(flipper, fp(-1, -1))
         col.addView(panel, lp(-1, 0, 14, 0, 14, 2, 1f))
