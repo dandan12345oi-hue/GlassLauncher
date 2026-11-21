@@ -1,6 +1,17 @@
 package com.glass.launcher
 
 import android.app.Activity
+import android.app.AlertDialog
+import android.appwidget.AppWidgetHost
+import android.appwidget.AppWidgetManager
+import android.content.ClipData
+import android.content.ClipDescription
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.RectF
+import android.os.Bundle
+import android.widget.ViewFlipper
 import android.app.ActivityOptions
 import android.content.ComponentName
 import android.content.Intent
@@ -54,6 +65,24 @@ class HomeActivity : Activity() {
     private var scrim: View? = null
     private var searchEt: EditText? = null
     private var winCount = 0
+    private var homeFlipper: ViewFlipper? = null
+    private var pageDots: LinearLayout? = null
+    private var homePageIndex = 0
+    private var widgetBox: LinearLayout? = null
+    private lateinit var widgetHost: AppWidgetHost
+    private lateinit var widgetManager: AppWidgetManager
+    private var pendingWidgetId = -1
+    private var pendingWidgetProvider: ComponentName? = null
+    private var drawerOpen = false
+    private var touchStartX = 0f
+    private var touchStartY = 0f
+
+    companion object {
+        private const val WIDGET_HOST_ID = 0x474C
+        private const val REQUEST_BIND_WIDGET = 4101
+        private const val REQUEST_CONFIGURE_WIDGET = 4102
+    }
+
 
     // ---------- ciclo de vida ----------
 
@@ -61,6 +90,18 @@ class HomeActivity : Activity() {
         super.onCreate(savedInstanceState)
         p = Prefs(this)
         icons = Icons(this, p)
+        widgetManager = AppWidgetManager.getInstance(this)
+        widgetHost = AppWidgetHost(this, WIDGET_HOST_ID)
+    }
+
+    override fun onStart() {
+        super.onStart()
+        try { widgetHost.startListening() } catch (_: Exception) {}
+    }
+
+    override fun onStop() {
+        try { widgetHost.stopListening() } catch (_: Exception) {}
+        super.onStop()
     }
 
     override fun onResume() {
@@ -68,6 +109,7 @@ class HomeActivity : Activity() {
         apps = AppRepo.load(this)
         seedDock()
         seedDesk()
+        seedHome()
         applyFilter()
         if (p.rev != lastRev) {
             rebuild()
@@ -89,7 +131,45 @@ class HomeActivity : Activity() {
     }
 
     override fun onBackPressed() {
-        closeMenu()
+        if (menuOpen()) closeMenu()
+    }
+
+    override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        if (!desktop && !drawerOpen) {
+            when (ev.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    touchStartX = ev.x
+                    touchStartY = ev.y
+                }
+                MotionEvent.ACTION_UP -> {
+                    val dx = ev.x - touchStartX
+                    val dy = ev.y - touchStartY
+                    if (kotlin.math.abs(dx) > dp(72) && kotlin.math.abs(dx) > kotlin.math.abs(dy) * 1.25f) {
+                        showHomePage(homePageIndex + if (dx < 0) 1 else -1)
+                    }
+                }
+            }
+        }
+        return super.dispatchTouchEvent(ev)
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == REQUEST_BIND_WIDGET) {
+            if (resultCode == RESULT_OK && pendingWidgetId > 0) {
+                configureOrSaveWidget(pendingWidgetId)
+            } else {
+                discardPendingWidget()
+            }
+            return
+        }
+        if (requestCode == REQUEST_CONFIGURE_WIDGET) {
+            if (resultCode == RESULT_OK && pendingWidgetId > 0) {
+                saveWidget(pendingWidgetId)
+            } else {
+                discardPendingWidget()
+            }
+        }
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean {
@@ -130,6 +210,11 @@ class HomeActivity : Activity() {
         if (p.deskSeeded || apps.isEmpty()) return
         p.desk = (p.dock + apps.take(8).map { it.key }).distinct().take(8)
         p.deskSeeded = true
+    }
+
+    private fun seedHome() {
+        if (p.home.isNotEmpty() || apps.isEmpty()) return
+        p.home = (p.dock + apps.take(8).map { it.key }).distinct().take(16)
     }
 
     private fun wantDesktop(): Boolean = when (p.desktopMode) {
@@ -322,27 +407,237 @@ class HomeActivity : Activity() {
 
         val compact = resources.configuration.screenHeightDp < 480
         if (!compact) col.addView(clockCard(true), lp(-1, -2, 14, 10, 14, 8))
-        if (p.showSearch) col.addView(searchBar(compact), lp(-1, -2, 14, if (compact) 10 else 0, 14, 8))
+
+        val tools = LinearLayout(this)
+        tools.orientation = LinearLayout.HORIZONTAL
+        tools.gravity = Gravity.CENTER_VERTICAL
+        tools.setPadding(dp(18), dp(4), dp(18), dp(8))
+        val caption = TextView(this)
+        caption.text = "TELA INICIAL"
+        caption.textSize = 11f
+        caption.typeface = Typeface.DEFAULT_BOLD
+        caption.setTextColor(withAlpha(p.fg, 165))
+        tools.addView(caption, lp(0, -2, weight = 1f))
+        val widgetButton = TextView(this)
+        widgetButton.text = "+ Widget"
+        widgetButton.textSize = 13f
+        widgetButton.setTextColor(p.accent)
+        widgetButton.setPadding(dp(10), dp(8), dp(10), dp(8))
+        widgetButton.setOnClickListener { showWidgetPicker() }
+        tools.addView(widgetButton)
+        col.addView(tools, lp(-1, -2))
+
+        widgetBox = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(14), 0, dp(14), 0)
+        }
+        renderWidgets()
+        if (p.widgets.isNotEmpty()) col.addView(widgetBox, lp(-1, -2, b = 6))
 
         val panel = GlassView(this, p)
-        val g = newGrid(p.cols)
-        g.setPadding(dp(8), dp(12), dp(8), dp(12))
-        g.clipToPadding = false
-        setupGrid(g)
-        panel.addView(g, fp(-1, -1))
-        col.addView(panel, lp(-1, 0, 14, 0, 14, 8, 1f))
+        val flipper = ViewFlipper(this)
+        val entries = availableHomeEntries()
+        val capacity = (p.cols * 4).coerceAtLeast(8)
+        val pages = entries.chunked(capacity).ifEmpty { listOf(emptyList()) }
+        pages.forEachIndexed { pageIndex, pageEntries ->
+            val g = newGrid(p.cols)
+            g.setPadding(dp(8), dp(12), dp(8), dp(12))
+            g.clipToPadding = false
+            g.adapter = HomePageAdapter(pageEntries)
+            g.setOnItemClickListener { _, _, position, _ ->
+                pageEntries.getOrNull(position)?.let { openHomeEntry(it) }
+            }
+            g.setOnItemLongClickListener { _, v, position, _ ->
+                val entry = pageEntries.getOrNull(position) ?: return@setOnItemLongClickListener true
+                val clip = ClipData.newPlainText("glass-home-entry", entry)
+                v.startDragAndDrop(clip, View.DragShadowBuilder(v), null, 0)
+                v.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS)
+                true
+            }
+            g.setOnDragListener { view, event ->
+                when (event.action) {
+                    View.DRAG_STARTED -> event.clipDescription?.hasMimeType(ClipDescription.MIMETYPE_TEXT_PLAIN) == true
+                    View.DRAG_DROP -> {
+                        val dragged = event.clipData?.getItemAt(0)?.text?.toString()
+                        val pos = g.pointToPosition(event.x.toInt(), event.y.toInt())
+                        if (!dragged.isNullOrBlank()) {
+                            val target = pageEntries.getOrNull(pos)
+                            if (target != null && target != dragged) mergeHomeEntries(dragged, target)
+                            else if (target == null || target == dragged) moveHomeEntryToPagePosition(dragged, pageIndex, pos)
+                        }
+                        true
+                    }
+                    View.DRAG_ENDED -> true
+                    else -> true
+                }
+            }
+            flipper.addView(g, fp(-1, -1))
+        }
+        homeFlipper = flipper
+        panel.addView(flipper, fp(-1, -1))
+        col.addView(panel, lp(-1, 0, 14, 0, 14, 2, 1f))
+
+        val dots = LinearLayout(this)
+        dots.orientation = LinearLayout.HORIZONTAL
+        dots.gravity = Gravity.CENTER
+        dots.setPadding(0, dp(4), 0, dp(6))
+        pageDots = dots
+        col.addView(dots, lp(-1, -2))
+        updatePageDots(pages.size)
 
         val dock = GlassView(this, p, 2f)
         dock.glassOn = p.dockGlass
         val box = LinearLayout(this)
         box.orientation = LinearLayout.HORIZONTAL
         box.gravity = Gravity.CENTER
-        box.setPadding(dp(10), dp(10), dp(10), dp(10))
+        box.setPadding(dp(10), dp(8), dp(10), dp(8))
         dock.addView(box, fp(-1, -2))
         dockBox = box
         col.addView(dock, lp(-1, -2, 14, 0, 14, 10))
         fillDock()
+
+        val sc = View(this)
+        sc.visibility = View.GONE
+        sc.setBackgroundColor(Color.argb(125, 0, 0, 0))
+        sc.setOnClickListener { closeMenu() }
+        root.addView(sc, fp(-1, -1))
+        scrim = sc
+        val drawer = buildStartMenu()
+        drawer.visibility = View.GONE
+        val drawerLp = fp(-1, -1)
+        drawerLp.setMargins(dp(12), dp(if (compact) 24 else 42), dp(12), dp(12))
+        root.addView(drawer, drawerLp)
+        menu = drawer
         return root
+    }
+
+    private fun availableHomeEntries(): List<String> {
+        val appKeys = apps.map { it.key }.toSet()
+        return p.home.filter { entry ->
+            if (HomeEntries.isFolder(entry)) HomeEntries.apps(entry).any { it in appKeys }
+            else entry in appKeys
+        }
+    }
+
+    private fun updatePageDots(count: Int) {
+        val row = pageDots ?: return
+        row.removeAllViews()
+        for (i in 0 until count) {
+            val dot = TextView(this)
+            dot.text = if (i == homePageIndex) "●" else "○"
+            dot.textSize = 11f
+            dot.setTextColor(if (i == homePageIndex) p.accent else withAlpha(p.fg, 120))
+            dot.setPadding(dp(7), 0, dp(7), 0)
+            dot.setOnClickListener { showHomePage(i) }
+            row.addView(dot)
+        }
+    }
+
+    private fun showHomePage(index: Int) {
+        val flipper = homeFlipper ?: return
+        if (index !in 0 until flipper.childCount) return
+        homePageIndex = index
+        flipper.displayedChild = index
+        updatePageDots(flipper.childCount)
+    }
+
+    private fun renderWidgets() {
+        val box = widgetBox ?: return
+        box.removeAllViews()
+        if (!::widgetHost.isInitialized || !::widgetManager.isInitialized) return
+        p.widgets.forEach { id ->
+            try {
+                val info = widgetManager.getAppWidgetInfo(id) ?: return@forEach
+                val hostView = widgetHost.createView(this, id, info)
+                hostView.setAppWidget(id, info)
+                box.addView(hostView, lp(-1, -2, b = 8))
+                hostView.setOnLongClickListener { v ->
+                    popup(v, listOf("Remover widget" to { removeWidget(id) }))
+                    true
+                }
+            } catch (_: Exception) {
+                // Um widget removido pelo sistema não deve impedir a tela inicial de abrir.
+            }
+        }
+    }
+
+    private fun showWidgetPicker() {
+        val providers = widgetManager.installedProviders.sortedBy {
+            try { packageManager.getApplicationLabel(packageManager.getApplicationInfo(it.provider.packageName, 0)).toString() }
+            catch (_: Exception) { it.provider.packageName }
+        }
+        if (providers.isEmpty()) {
+            Toast.makeText(this, "Nenhum widget disponível", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val labels = providers.map { info ->
+            val app = try { packageManager.getApplicationLabel(packageManager.getApplicationInfo(info.provider.packageName, 0)).toString() }
+            catch (_: Exception) { info.provider.packageName }
+            app + " — " + (info.loadLabel(packageManager) ?: "Widget")
+        }.toTypedArray()
+        AlertDialog.Builder(this)
+            .setTitle("Adicionar widget")
+            .setItems(labels) { _, which -> requestWidget(providers[which]) }
+            .setNegativeButton("Cancelar", null)
+            .show()
+    }
+
+    private fun requestWidget(info: android.appwidget.AppWidgetProviderInfo) {
+        val id = widgetHost.allocateAppWidgetId()
+        pendingWidgetId = id
+        pendingWidgetProvider = info.provider
+        try {
+            val bound = widgetManager.bindAppWidgetIdIfAllowed(id, info.provider)
+            if (bound) {
+                configureOrSaveWidget(id)
+            } else {
+                val intent = Intent(AppWidgetManager.ACTION_APPWIDGET_BIND)
+                    .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, id)
+                    .putExtra(AppWidgetManager.EXTRA_APPWIDGET_PROVIDER, info.provider)
+                startActivityForResult(intent, REQUEST_BIND_WIDGET)
+            }
+        } catch (e: Exception) {
+            discardPendingWidget()
+            Toast.makeText(this, "Não foi possível adicionar esse widget", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun configureOrSaveWidget(id: Int) {
+        val info = widgetManager.getAppWidgetInfo(id)
+        val configure = info?.configure
+        if (configure != null) {
+            val intent = Intent(AppWidgetManager.ACTION_APPWIDGET_CONFIGURE)
+                .setComponent(configure)
+                .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, id)
+            try {
+                startActivityForResult(intent, REQUEST_CONFIGURE_WIDGET)
+            } catch (_: Exception) {
+                saveWidget(id)
+            }
+        } else {
+            saveWidget(id)
+        }
+    }
+
+    private fun saveWidget(id: Int) {
+        if (id > 0) p.widgets = (p.widgets + id).distinct()
+        pendingWidgetId = -1
+        pendingWidgetProvider = null
+        rebuild()
+    }
+
+    private fun discardPendingWidget() {
+        if (pendingWidgetId > 0) {
+            try { widgetHost.deleteAppWidgetId(pendingWidgetId) } catch (_: Exception) {}
+        }
+        pendingWidgetId = -1
+        pendingWidgetProvider = null
+    }
+
+    private fun removeWidget(id: Int) {
+        p.widgets = p.widgets.filter { it != id }
+        try { widgetHost.deleteAppWidgetId(id) } catch (_: Exception) {}
+        rebuild()
     }
 
     // ---------- modo desktop / DeX ----------
@@ -508,6 +803,7 @@ class HomeActivity : Activity() {
 
     private fun openMenu() {
         val m = menu ?: return
+        drawerOpen = !desktop
         query = ""
         searchEt?.setText("")
         applyFilter()
@@ -522,6 +818,7 @@ class HomeActivity : Activity() {
 
     private fun closeMenu() {
         val m = menu ?: return
+        drawerOpen = false
         if (m.visibility != View.VISIBLE) return
         scrim?.visibility = View.GONE
         m.animate().alpha(0f).setDuration(110).withEndAction { m.visibility = View.GONE }.start()
@@ -586,40 +883,44 @@ class HomeActivity : Activity() {
                 iv.scaleType = ImageView.ScaleType.CENTER
                 iv.setImageBitmap(icons.get(a, px))
                 iv.setOnClickListener { launch(a) }
-                iv.setOnLongClickListener { v ->
-                    appMenu(v, a, 2)
-                    true
-                }
+                iv.setOnLongClickListener { v -> appMenu(v, a, 2); true }
                 iv.isContextClickable = true
-                iv.setOnContextClickListener { v ->
-                    appMenu(v, a, 2)
-                    true
-                }
+                iv.setOnContextClickListener { v -> appMenu(v, a, 2); true }
                 hover(iv)
                 box.addView(iv, lp(px + dp(14), px + dp(14), 2, 0, 2, 0))
             }
         } else {
             if (list.isEmpty()) {
                 val t = TextView(this)
-                t.text = "Segure um app na grade para fixar aqui"
+                t.text = "Fixe seus apps favoritos"
                 t.setTextColor(p.fg)
-                t.textSize = 13f
-                t.setPadding(0, dp(18), 0, dp(18))
-                box.addView(t)
-                return
-            }
-            val px = dp(p.iconSize)
-            for (a in list) {
-                val iv = ImageView(this)
-                iv.scaleType = ImageView.ScaleType.CENTER
-                iv.setImageBitmap(icons.get(a, px))
-                iv.setOnClickListener { launch(a) }
-                iv.setOnLongClickListener { v ->
-                    appMenu(v, a, 2)
-                    true
+                t.textSize = 12f
+                t.gravity = Gravity.CENTER
+                box.addView(t, lp(0, dp(46), weight = 1f))
+            } else {
+                val px = dp(p.iconSize)
+                for (a in list) {
+                    val iv = ImageView(this)
+                    iv.scaleType = ImageView.ScaleType.CENTER
+                    iv.setImageBitmap(icons.get(a, px))
+                    iv.contentDescription = a.label
+                    iv.setOnClickListener { launch(a) }
+                    iv.setOnLongClickListener { v -> appMenu(v, a, 2); true }
+                    box.addView(iv, lp(0, px + dp(8), weight = 1f))
                 }
-                box.addView(iv, lp(0, px + dp(8), weight = 1f))
             }
+            val appsButton = TextView(this)
+            appsButton.text = "▦"
+            appsButton.textSize = 24f
+            appsButton.gravity = Gravity.CENTER
+            appsButton.setTextColor(Color.WHITE)
+            appsButton.contentDescription = "Abrir gaveta de aplicativos"
+            val bg = GradientDrawable()
+            bg.cornerRadius = dpf(15f)
+            bg.setColor(p.accent)
+            appsButton.background = bg
+            appsButton.setOnClickListener { openMenu() }
+            box.addView(appsButton, lp(dp(48), dp(48), l = 6))
         }
     }
 
@@ -664,6 +965,7 @@ class HomeActivity : Activity() {
     private fun appMenu(v: View, a: AppInfo, kind: Int) {
         val l = ArrayList<Pair<String, () -> Unit>>()
         l.add("Abrir" to { launch(a) })
+        if (!desktop && kind == 0 && a.key !in p.home) l.add("Adicionar à tela inicial" to { pinHome(a) })
         if (kind != 2) l.add((if (desktop) "Fixar na barra" else "Fixar no dock") to { pinDock(a) })
         if (kind == 2) l.add("Remover da barra" to { unpinDock(a) })
         if (kind != 1) l.add("Fixar na área de trabalho" to { pinDesk(a) })
@@ -712,6 +1014,155 @@ class HomeActivity : Activity() {
         p.desk = p.desk.filter { it != a.key }
         lastRev = p.rev
         if (desktop) setUi()
+    }
+
+    private inner class HomePageAdapter(private val entries: List<String>) : BaseAdapter() {
+        override fun getCount(): Int = entries.size
+        override fun getItem(position: Int): Any = entries[position]
+        override fun getItemId(position: Int): Long = entries[position].hashCode().toLong()
+
+        override fun getView(position: Int, convertView: View?, parent: ViewGroup?): View {
+            val cell = (convertView as? LinearLayout) ?: makeCell()
+            val icon = cell.getChildAt(0) as ImageView
+            val label = cell.getChildAt(1) as TextView
+            val entry = entries[position]
+            if (HomeEntries.isFolder(entry)) {
+                val members = HomeEntries.apps(entry).mapNotNull { key -> apps.firstOrNull { it.key == key } }
+                icon.setImageBitmap(folderBitmap(members, dp(p.iconSize)))
+                label.text = HomeEntries.name(entry)
+            } else {
+                val app = apps.firstOrNull { it.key == entry }
+                if (app != null) {
+                    icon.setImageBitmap(icons.get(app, dp(p.iconSize)))
+                    label.text = app.label
+                } else {
+                    icon.setImageDrawable(null)
+                    label.text = ""
+                }
+            }
+            label.visibility = if (p.showLabels) View.VISIBLE else View.GONE
+            cell.isContextClickable = true
+            cell.setOnContextClickListener { v ->
+                homeEntryMenu(v, entry)
+                true
+            }
+            return cell
+        }
+    }
+
+    private fun folderBitmap(members: List<AppInfo>, px: Int): Bitmap {
+        val bitmap = Bitmap.createBitmap(px, px, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        val bg = Paint(Paint.ANTI_ALIAS_FLAG)
+        bg.color = withAlpha(p.accent, if (p.dark) 105 else 65)
+        canvas.drawRoundRect(RectF(0f, 0f, px.toFloat(), px.toFloat()), px * 0.24f, px * 0.24f, bg)
+        val inset = px * 0.13f
+        val size = px * 0.32f
+        val spots = listOf(
+            RectF(inset, inset, inset + size, inset + size),
+            RectF(px - inset - size, inset, px - inset, inset + size),
+            RectF(inset, px - inset - size, inset + size, px - inset),
+            RectF(px - inset - size, px - inset - size, px - inset, px - inset)
+        )
+        val paint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
+        members.take(4).forEachIndexed { index, app ->
+            canvas.drawBitmap(icons.get(app, (size * 2).toInt().coerceAtLeast(1)), null, spots[index], paint)
+        }
+        return bitmap
+    }
+
+    private fun openHomeEntry(entry: String) {
+        if (!HomeEntries.isFolder(entry)) {
+            apps.firstOrNull { it.key == entry }?.let { launch(it) }
+            return
+        }
+        val members = HomeEntries.apps(entry).mapNotNull { key -> apps.firstOrNull { it.key == key } }
+        if (members.isEmpty()) return
+        AlertDialog.Builder(this)
+            .setTitle(HomeEntries.name(entry))
+            .setItems(members.map { it.label }.toTypedArray()) { _, which -> launch(members[which]) }
+            .setNegativeButton("Fechar", null)
+            .show()
+    }
+
+    private fun homeEntryMenu(v: View, entry: String) {
+        val items = ArrayList<Pair<String, () -> Unit>>()
+        items.add("Abrir" to { openHomeEntry(entry) })
+        if (HomeEntries.isFolder(entry)) {
+            items.add("Renomear pasta" to { renameFolder(entry) })
+            items.add("Desagrupar pasta" to {
+                val index = p.home.indexOf(entry)
+                if (index >= 0) {
+                    val expanded = HomeEntries.apps(entry)
+                    val list = p.home.toMutableList()
+                    list.removeAt(index)
+                    list.addAll(index, expanded)
+                    p.home = list.distinct()
+                    rebuild()
+                }
+            })
+        } else {
+            val app = apps.firstOrNull { it.key == entry }
+            if (app != null) {
+                items.add("Fixar no dock" to { pinDock(app) })
+                items.add("Informações do app" to {
+                    startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + app.pkg)))
+                })
+            }
+        }
+        items.add("Remover da tela inicial" to { removeHomeEntry(entry) })
+        popup(v, items)
+    }
+
+    private fun renameFolder(entry: String) {
+        val input = EditText(this)
+        input.setText(HomeEntries.name(entry))
+        AlertDialog.Builder(this)
+            .setTitle("Nome da pasta")
+            .setView(input)
+            .setNegativeButton("Cancelar", null)
+            .setPositiveButton("Salvar") { _, _ ->
+                val renamed = HomeEntries.folder(input.text.toString(), HomeEntries.apps(entry))
+                p.home = p.home.map { if (it == entry) renamed else it }
+                rebuild()
+            }
+            .show()
+    }
+
+    private fun mergeHomeEntries(dragged: String, target: String) {
+        val list = p.home.toMutableList()
+        if (dragged !in list || target !in list || dragged == target) return
+        val combined = (HomeEntries.apps(dragged) + HomeEntries.apps(target)).distinct()
+        val label = if (HomeEntries.isFolder(target)) HomeEntries.name(target) else "Pasta"
+        val folder = HomeEntries.folder(label, combined)
+        val targetIndex = list.indexOf(target)
+        list.remove(dragged)
+        val adjustedIndex = list.indexOf(target)
+        if (adjustedIndex >= 0) list[adjustedIndex] = folder
+        else list.add(targetIndex.coerceIn(0, list.size), folder)
+        p.home = list
+        rebuild()
+    }
+
+    private fun moveHomeEntryToPagePosition(entry: String, page: Int, position: Int) {
+        val list = p.home.toMutableList()
+        if (entry !in list) return
+        list.remove(entry)
+        val capacity = (p.cols * 4).coerceAtLeast(8)
+        val target = (page * capacity + position.coerceAtLeast(0)).coerceIn(0, list.size)
+        list.add(target, entry)
+        p.home = list
+        rebuild()
+    }
+
+    private fun pinHome(a: AppInfo) {
+        if (a.key !in p.home) p.home = p.home + a.key
+        rebuild()
+    }
+
+    private fun removeHomeEntry(entry: String) {
+        p.home = p.home.filter { it != entry }
+        rebuild()
     }
 
     private fun makeCell(): LinearLayout {
