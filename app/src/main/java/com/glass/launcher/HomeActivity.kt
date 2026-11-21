@@ -213,8 +213,9 @@ class HomeActivity : Activity() {
     }
 
     private fun seedHome() {
-        if (p.home.isNotEmpty() || apps.isEmpty()) return
+        if (p.homeSeeded || apps.isEmpty()) return
         p.home = (p.dock + apps.take(8).map { it.key }).distinct().take(16)
+        p.homeSeeded = true
     }
 
     private fun wantDesktop(): Boolean = when (p.desktopMode) {
