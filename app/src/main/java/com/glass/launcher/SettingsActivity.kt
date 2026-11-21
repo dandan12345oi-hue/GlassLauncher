@@ -122,6 +122,7 @@ class SettingsActivity : Activity() {
         note("Deslize horizontalmente para trocar de página. Segure um atalho e solte sobre outro para criar uma pasta. Use + Widget na tela inicial para adicionar widgets instalados.")
         button("Restaurar atalhos da tela inicial") {
             p.home = emptyList()
+            p.homeSeeded = false
             render()
         }
 
