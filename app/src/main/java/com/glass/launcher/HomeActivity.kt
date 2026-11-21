@@ -425,6 +425,13 @@ class HomeActivity : Activity() {
         widgetButton.setPadding(dp(10), dp(8), dp(10), dp(8))
         widgetButton.setOnClickListener { showWidgetPicker() }
         tools.addView(widgetButton)
+        val organizeButton = TextView(this)
+        organizeButton.text = "Organizar"
+        organizeButton.textSize = 13f
+        organizeButton.setTextColor(p.accent)
+        organizeButton.setPadding(dp(10), dp(8), dp(10), dp(8))
+        organizeButton.setOnClickListener { showHomeManager() }
+        tools.addView(organizeButton)
         col.addView(tools, lp(-1, -2))
 
         widgetBox = LinearLayout(this).apply {
@@ -519,6 +526,26 @@ class HomeActivity : Activity() {
             if (HomeEntries.isFolder(entry)) HomeEntries.apps(entry).any { it in appKeys }
             else entry in appKeys
         }
+    }
+
+    private fun showHomeManager() {
+        val entries = availableHomeEntries()
+        if (entries.isEmpty()) {
+            Toast.makeText(this, "Adicione apps pela gaveta de aplicativos", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val labels = entries.map { entry ->
+            if (HomeEntries.isFolder(entry)) "📁 " + HomeEntries.name(entry)
+            else apps.firstOrNull { it.key == entry }?.label ?: entry
+        }.toTypedArray()
+        AlertDialog.Builder(this)
+            .setTitle("Organizar tela inicial")
+            .setItems(labels) { _, which ->
+                val anchor: View = pageDots ?: window.decorView
+                homeEntryMenu(anchor, entries[which])
+            }
+            .setNegativeButton("Fechar", null)
+            .show()
     }
 
     private fun updatePageDots(count: Int) {
